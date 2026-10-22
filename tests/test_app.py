@@ -110,3 +110,56 @@ def test_long_addresses_have_four_digits(window):
     assert panel._new_address.text() == "5"
     panel._new_long.setChecked(True)
     assert panel._new_address.text() == "0005"
+
+
+def test_throttle_drives_a_roster_loco(window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from simple_train.core.roster import Loco
+
+    app, win = window
+    bar, link = win.connection_bar, win.link
+    loco = win.roster.add(Loco(name="Class 08", address=144, long_address=True,
+                               function_names={0: "Lights", 2: "Horn"}, momentary=[2]))
+    bar._ports.setCurrentIndex(bar._ports.findData("demo"))
+    bar.connect_now()
+    _wait(app, lambda: link.connected and not link.busy)
+    station = link._connection._transport
+
+    win._drive_loco(loco.id)
+    card = win.throttles.card_for(144, True)
+    assert card is not None and card._name.text() == "Class 08"
+    card._slider.setValue(60)
+    card.set_direction(False)
+    card.toggle_function(0)
+    link.throttle.wait_until_sent()
+    word = 0xC000 | 144
+    assert station.locos[word][0x03] == 60 and station.locos[word][0x07] == 0x10
+
+    horn = card._function_buttons[2]
+    QTest.mousePress(horn, Qt.LeftButton)
+    link.throttle.wait_until_sent()
+    assert station.locos[word][0x07] == 0x12
+    QTest.mouseRelease(horn, Qt.LeftButton)
+    link.throttle.wait_until_sent()
+    assert station.locos[word][0x07] == 0x10
+
+    win.throttles.stop_all()
+    link.throttle.wait_until_sent()
+    assert 0x05 in station.locos[word]
+
+    # A programming-track job stops moving locos first, and pauses the throttles.
+    card._slider.setValue(30)
+    link.throttle.wait_until_sent()
+    win.programmer._mode.setCurrentIndex(0)
+    win.programmer._read([1])
+    assert not card._slider.isEnabled()
+    _wait(app, lambda: not link.busy)
+    assert station.locos[word][0x03] == 0 and card._slider.isEnabled()
+
+    # Disconnecting stops the loco too.
+    card._slider.setValue(40)
+    link.throttle.wait_until_sent()
+    link.disconnect()
+    assert station.locos[word][0x03] == 0

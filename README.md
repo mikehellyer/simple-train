@@ -26,12 +26,22 @@ working through the **NCE USB interface**.
   puts a loco's CVs back after a reset or a decoder swap. Locos can be exported to a file and
   imported again.
 
+- **Throttles** (the Throttles tab): drive up to six locos at once, from the roster or by address. Each
+  throttle has a speed slider (128 speed steps), forward and reverse, stop and emergency stop, and
+  F0–F28. The function keys are named from the roster's **Function keys** page, where a key can also be
+  set to work only while held (for a horn). **Stop all** stops everything at once. Keys for the chosen
+  throttle: ↑ ↓ speed, ← → direction, Space stop, Esc emergency stop, 0–9 for F0–F9. Moving locos
+  are stopped before a programming-track job starts (on a Power Cab the track switches over), and
+  when you disconnect or quit.
+
 ### NCE notes
 
 - Through the USB interface, only a **Power Cab** or a **Twin** has a programming track. With an
   SB3, SB5 or Power Pro, the USB interface can only program on the main, and the app switches to
   that by itself.
 - NCE can't read CVs on the main; there it can only write them.
+- The USB interface can't switch track power on or off, so **Stop all** sends an emergency stop to
+  each loco on the throttles. A loco only driven from the handset isn't stopped.
 - On a Power Cab, the one track becomes the programming track while a job runs. The main is
   powered again once the job is done.
 

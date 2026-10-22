@@ -22,12 +22,14 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from simple_train.core import decoder
 from simple_train.core.roster import Loco, export_loco, import_loco
+from simple_train.core.throttle import FUNCTION_COUNT
 from simple_train.gui.address_spin import AddressSpin
 from simple_train.gui.roster_store import RosterStore
 
@@ -41,12 +43,14 @@ def _safe_filename(name: str) -> str:
 class RosterPanel(QWidget):
     open_in_programmer = Signal(str)  # loco id
     restore_requested = Signal(str)  # loco id
+    drive_requested = Signal(str)  # loco id
 
     def __init__(self, roster: RosterStore, parent=None):
         super().__init__(parent)
         self._roster = roster
         self._loco_id: Optional[str] = None
         self._loading = False
+        self._functions_for: Optional[str] = None  # which loco the function table shows
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(SAVE_DELAY_MS)
@@ -139,9 +143,10 @@ class RosterPanel(QWidget):
         layout.addLayout(form)
 
         cv_header = QHBoxLayout()
-        self._cv_title = QLabel()
-        self._cv_title.setStyleSheet("font-weight: 600;")
-        cv_header.addWidget(self._cv_title)
+        self._drive = QPushButton("Drive")
+        self._drive.setToolTip("Put this loco on a throttle")
+        self._drive.clicked.connect(lambda: self._loco_id and self.drive_requested.emit(self._loco_id))
+        cv_header.addWidget(self._drive)
         cv_header.addStretch(1)
         program = QPushButton("Open in programmer")
         program.setToolTip("Go to the programmer with this loco chosen")
@@ -152,6 +157,12 @@ class RosterPanel(QWidget):
         cv_header.addWidget(self._restore)
         layout.addLayout(cv_header)
 
+        self._pages = QTabWidget()
+        cv_page = QWidget()
+        cv_layout = QVBoxLayout(cv_page)
+        self._cv_title = QLabel()
+        self._cv_title.setStyleSheet("font-weight: 600;")
+        cv_layout.addWidget(self._cv_title)
         self._cvs = QTableWidget(0, 5)
         self._cvs.setHorizontalHeaderLabels(["CV", "What it is", "Value", "Hex", "Bits"])
         self._cvs.verticalHeader().hide()
@@ -160,7 +171,27 @@ class RosterPanel(QWidget):
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         for column in (0, 2, 3, 4):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
-        layout.addWidget(self._cvs, stretch=1)
+        cv_layout.addWidget(self._cvs, stretch=1)
+        self._pages.addTab(cv_page, "Saved CVs")
+
+        function_page = QWidget()
+        function_layout = QVBoxLayout(function_page)
+        function_hint = QLabel("Name the function keys as they work on this loco, for its throttle buttons. "
+                               "Tick “Only while held” for a horn or whistle.")
+        function_hint.setWordWrap(True)
+        function_hint.setStyleSheet("color: palette(placeholder-text);")
+        function_layout.addWidget(function_hint)
+        self._functions = QTableWidget(FUNCTION_COUNT, 3)
+        self._functions.setHorizontalHeaderLabels(["Key", "What it does", "Only while held"])
+        self._functions.verticalHeader().hide()
+        function_header = self._functions.horizontalHeader()
+        function_header.setSectionResizeMode(1, QHeaderView.Stretch)
+        function_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        function_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self._functions.itemChanged.connect(self._on_function_edit)
+        function_layout.addWidget(self._functions, stretch=1)
+        self._pages.addTab(function_page, "Function keys")
+        layout.addWidget(self._pages, stretch=1)
 
         self._empty = QLabel("No locos yet. Read a decoder in the Programmer and press “Save to roster…”, "
                              "or press New loco.")
@@ -216,10 +247,10 @@ class RosterPanel(QWidget):
         loco = self.loco
         has = loco is not None
         for widget in (self._name, self._road_number, self._address, self._long, self._decoder_model,
-                       self._notes, self._cvs, self._restore, self._delete, self._export):
+                       self._notes, self._pages, self._restore, self._delete, self._export, self._drive):
             widget.setEnabled(has)
         self._empty.setVisible(not self._roster.roster.locos)
-        self._cvs.setVisible(bool(self._roster.roster.locos))
+        self._pages.setVisible(bool(self._roster.roster.locos))
         self._loading = True
         if not has:
             for edit in (self._name, self._road_number, self._decoder_model):
@@ -228,6 +259,7 @@ class RosterPanel(QWidget):
             self._made_by.setText("—")
             self._cv_title.setText("")
             self._cvs.setRowCount(0)
+            self._functions_for = None
             self._loading = False
             return
         # Only where it differs, so a save while typing doesn't move the cursor.
@@ -253,7 +285,43 @@ class RosterPanel(QWidget):
                 if column in (0, 2, 3):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self._cvs.setItem(row, column, item)
+        if self._functions_for != loco.id:  # not while editing it: a save mustn't close the editor
+            self._fill_functions(loco)
         self._loading = False
+
+    def _fill_functions(self, loco: Loco) -> None:
+        self._functions_for = loco.id
+        for number in range(FUNCTION_COUNT):
+            key = QTableWidgetItem(f"F{number}")
+            key.setFlags(Qt.ItemIsEnabled)
+            name = QTableWidgetItem(loco.function_name(number))
+            held = QTableWidgetItem()
+            held.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            held.setCheckState(Qt.Checked if loco.is_momentary(number) else Qt.Unchecked)
+            for column, item in enumerate((key, name, held)):
+                self._functions.setItem(number, column, item)
+
+    def _on_function_edit(self, item: QTableWidgetItem) -> None:
+        loco = self.loco
+        if self._loading or loco is None or self._functions_for != loco.id:
+            return
+        number = item.row()
+        if item.column() == 1:
+            name = item.text().strip()
+            if name:
+                loco.function_names[number] = name
+            else:
+                loco.function_names.pop(number, None)
+        elif item.column() == 2:
+            held = set(loco.momentary)
+            if item.checkState() == Qt.Checked:
+                held.add(number)
+            else:
+                held.discard(number)
+            loco.momentary = sorted(held)
+        else:
+            return
+        self._schedule_save()
 
     # --- editing
 

@@ -36,6 +36,8 @@ class SimulatedCommandStation:
         self.cvs = dict(FACTORY_CVS)
         self.in_programming_mode = False
         self.main_writes: list[tuple[int, int, int]] = []  # (address word, cv, value)
+        # What each loco on the main has been told: address word -> {op: data}
+        self.locos: dict[int, dict[int, int]] = {}
         self.sent: list[bytes] = []
         self._reply = b""
 
@@ -64,6 +66,16 @@ class SimulatedCommandStation:
             return ok
         if op == nce.VERSION:
             return bytes((7, 3, 7)) if self.command_station != nce.POWER_CAB else bytes((6, 3, 9))
+        if op == nce.LOCO_COMMAND:
+            address, sub, data = (args[0] << 8) | args[1], args[2], args[3]
+            if sub > 0x17 or (sub in (0x01, 0x02, 0x03, 0x04) and data > 126):
+                return b"2"
+            state = self.locos.setdefault(address, {})
+            if sub in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06):  # speed and direction replace each other
+                for old in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06):
+                    state.pop(old, None)
+            state[sub] = data
+            return ok
         if op == nce.OPS_PROGRAM_LOCO:
             address, cv, value = (args[0] << 8) | args[1], (args[2] << 8) | args[3], args[4]
             self.main_writes.append((address, cv, value))

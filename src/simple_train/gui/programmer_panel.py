@@ -463,7 +463,7 @@ class ProgrammerPanel(QWidget):
             if then is not None:
                 then()
 
-        self._link.run_job(lambda programmer, progress: programmer.read_cvs(cvs, mode, progress, keep_going), done)
+        self._link.run_job_in(mode, lambda programmer, progress: programmer.read_cvs(cvs, mode, progress, keep_going), done)
 
     def _write(self, writes: list[tuple[int, int]], then=None) -> None:
         mode = self.mode
@@ -478,7 +478,7 @@ class ProgrammerPanel(QWidget):
             if then is not None:
                 then()
 
-        self._link.run_job(
+        self._link.run_job_in(mode,
             lambda programmer, progress: programmer.write_cvs(writes, mode, address, long, verify, progress), done)
 
     def _read_decoder(self) -> None:
@@ -507,7 +507,7 @@ class ProgrammerPanel(QWidget):
                      f"{'long' if long else 'short'} address {decoder.address_text(address, long)}", GOOD)
             self.log(raw, INFO)
 
-        self._link.run_job(lambda programmer, progress: programmer.identify(mode, progress), done)
+        self._link.run_job_in(mode, lambda programmer, progress: programmer.identify(mode, progress), done)
 
     def _write_address(self) -> None:
         address = self._new_address.value()
@@ -549,7 +549,7 @@ class ProgrammerPanel(QWidget):
         if mode == nce.REGISTER and long:
             self.log("Register mode can't reach CV17/18 — use direct or paged mode for a long address", ERROR)
             return
-        self._link.run_job(job, done)
+        self._link.run_job_in(mode, job, done)
 
     def _reset_decoder(self) -> None:
         answer = QMessageBox.warning(
@@ -569,7 +569,7 @@ class ProgrammerPanel(QWidget):
             self.log("Decoder reset to factory settings — read it again to see its CVs", GOOD)
 
         # A reset can't be checked by reading CV8 back: it reads as the manufacturer ID.
-        self._link.run_job(lambda programmer, progress: programmer.write_cvs([(8, 8)], mode, address, long,
+        self._link.run_job_in(mode, lambda programmer, progress: programmer.write_cvs([(8, 8)], mode, address, long,
                                                                              False, progress), done)
 
     # --- the roster

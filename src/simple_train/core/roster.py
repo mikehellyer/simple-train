@@ -46,6 +46,10 @@ class Loco:
     notes: str = ""
     cvs: dict[int, int] = field(default_factory=dict)
     cvs_saved_at: str = ""
+    # What the loco's function keys do, for the throttle: F-number -> name
+    # ("Lights", "Horn"…), and which ones only last while held (a horn).
+    function_names: dict[int, str] = field(default_factory=lambda: {0: "Lights"})
+    momentary: list[int] = field(default_factory=list)
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     @property
@@ -86,7 +90,15 @@ class Loco:
     def to_json(self) -> dict:
         data = asdict(self)
         data["cvs"] = {str(cv): value for cv, value in sorted(self.cvs.items())}
+        data["function_names"] = {str(n): name for n, name in sorted(self.function_names.items()) if name}
+        data["momentary"] = sorted(set(self.momentary))
         return data
+
+    def function_name(self, number: int) -> str:
+        return self.function_names.get(number, "")
+
+    def is_momentary(self, number: int) -> bool:
+        return number in self.momentary
 
     @classmethod
     def from_json(cls, data: dict) -> "Loco":
@@ -108,6 +120,19 @@ class Loco:
                     continue
                 if 1 <= cv <= 1024 and 0 <= value <= 255:
                     loco.cvs[cv] = value
+        names = data.get("function_names")
+        if isinstance(names, dict):
+            loco.function_names = {}
+            for number, name in names.items():
+                try:
+                    number = int(number)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= number <= 28 and isinstance(name, str) and name.strip():
+                    loco.function_names[number] = name.strip()
+        momentary = data.get("momentary")
+        if isinstance(momentary, list):
+            loco.momentary = sorted({n for n in momentary if isinstance(n, int) and 0 <= n <= 28})
         return loco
 
 

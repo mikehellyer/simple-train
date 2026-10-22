@@ -15,6 +15,7 @@ from simple_train.core import nce
 from simple_train.core.ports import DEMO_PORT
 from simple_train.core.programmer import Programmer, Progress
 from simple_train.core.simulator import SimulatedCommandStation
+from simple_train.core.throttle import ThrottleSender
 from simple_train.gui.workers import BackgroundRunner
 
 PROGRESS_POLL_MS = 150
@@ -46,6 +47,12 @@ class Link(QObject):
     progress_changed = Signal(str)  # e.g. "Reading CV 3 (2 of 6)…"; "" when idle
     message = Signal(str, str)  # text, INFO / GOOD / ERROR
     command_station_changed = Signal(str)
+    # True while a job has the programming track: on a Power Cab the one
+    # track output is the programming track then, so the throttles pause.
+    programming_track_changed = Signal(bool)
+    throttle_message = Signal(str)  # a loco command that failed (emitted on the sender's thread)
+    about_to_disconnect = Signal()  # last chance to stop moving locos
+    programming_track_starting = Signal()  # stop moving locos before the track switches over
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -55,6 +62,8 @@ class Link(QObject):
         self.command_station = nce.POWER_CAB
         self.port = ""
         self.version: Optional[nce.Version] = None
+        self.throttle: Optional[ThrottleSender] = None
+        self.programming_track_busy = False
         self._busy = False
         self._progress: Optional[Progress] = None
         self._poll = QTimer(self)
@@ -84,6 +93,8 @@ class Link(QObject):
         self._connection, self.version = result
         self.port = port
         self.programmer = Programmer(self._connection, self.command_station)
+        # Qt signals can be emitted from any thread; the receivers run on the GUI thread.
+        self.throttle = ThrottleSender(self._connection, self.throttle_message.emit)
         self._set_busy(False)
         where = "the demo command station" if port == DEMO_PORT else port
         self.message.emit(f"Connected to {where} — NCE USB interface version {self.version}", GOOD)
@@ -98,9 +109,13 @@ class Link(QObject):
     def disconnect(self) -> None:
         if self._connection is None:
             return
+        self.about_to_disconnect.emit()
         if self._progress is not None:
             self._progress.stop()
         self._runner.shutdown(int(nce.PAGED_TIMEOUT * 1000))
+        if self.throttle is not None:
+            self.throttle.stop()
+            self.throttle = None
         self._connection.close()
         self._connection = None
         self.programmer = None
@@ -114,6 +129,23 @@ class Link(QObject):
         self.command_station_changed.emit(command_station)
 
     # --- jobs
+
+    def run_job_in(self, mode: str, job, on_done, on_error=None) -> bool:
+        """run_job for a job programming in `mode`: one on the programming
+        track pauses the throttles while it runs."""
+        track = nce.uses_programming_track(mode)
+        if self._busy or self.programmer is None:
+            return False
+        if track:
+            # Otherwise a loco still running when the track comes back on the main
+            # would carry on at its old speed.
+            self.programming_track_starting.emit()
+        if not self.run_job(job, on_done, on_error):
+            return False
+        if track:
+            self.programming_track_busy = True
+            self.programming_track_changed.emit(True)
+        return True
 
     def run_job(self, job: Callable[[Programmer, Progress], object], on_done: Callable[[object], None],
                 on_error: Optional[Callable[[Exception], None]] = None) -> bool:
@@ -150,6 +182,9 @@ class Link(QObject):
         self._poll.stop()
         self._progress = None
         self._set_busy(False)
+        if self.programming_track_busy:
+            self.programming_track_busy = False
+            self.programming_track_changed.emit(False)
 
     def _show_progress(self) -> None:
         progress = self._progress

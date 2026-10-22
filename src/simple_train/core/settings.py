@@ -25,6 +25,11 @@ class Settings:
     main_address: int = 3  # the loco programmed on the main
     verify_writes: bool = False
 
+    # The throttles, left to right, separated by ";": "r:<roster id>" for a
+    # roster loco, "a:<address>:L" or "a:<address>:S" for any other
+    # address, "-" for a throttle with no loco chosen yet.
+    throttles: str = "-;-"
+
 
 _CHOICES = {
     "baud": nce.BAUD_RATES,

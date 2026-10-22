@@ -15,6 +15,7 @@ Programming track commands (see JMRI's jmrix/nce for the same set):
   0xA7 reg             register mode read     -> value, status
 And on the main track:
   0xAE adH adL cvH cvL data   program a loco's CV on the main ("POM", write only)
+  0xA2 adH adL op data        drive a loco: speed and direction, or a group of functions
   0xAA                        the interface's version: 3 bytes
 
 Through the USB interface only a Power Cab or a Twin offers the programming
@@ -326,6 +327,12 @@ class NceConnection:
         if status != OK:
             raise _status_error(status, reading=True)
         return value
+
+    def loco_command(self, command: bytes) -> None:
+        """Send one of the 0xA2 commands made by core.throttle."""
+        (status,) = self._command(command)
+        if status != OK:
+            raise _status_error(status, reading=False)
 
     def write_cv(self, cv: int, value: int, mode: str = DIRECT, address: int = 3, long: Optional[bool] = None) -> None:
         """Write one CV. On the main, `address` (and `long`) say which loco."""
