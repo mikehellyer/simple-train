@@ -445,12 +445,19 @@ class ProgrammerPanel(QWidget):
                 learnt.update({17: info.cv17, 18: info.cv18})
             self._learn(learnt)
             address, long = info.address
+            raw = ", ".join(f"CV{cv} = {value}" for cv, value in sorted(learnt.items()))
+            if address is None:
+                self.log(f"Found a decoder made by {info.manufacturer} (version {info.cv7}). CV29 says it uses "
+                         "a long address, but CV17/18 didn't read back — try paged mode", ERROR)
+                self.log(raw, INFO)
+                return
             self._new_address.setValue(address)
             self._new_long.setChecked(long)
             self._main_address.setValue(address)  # ready for programming it on the main too
             self._main_long.setChecked(long)
             self.log(f"Found a decoder made by {info.manufacturer} (version {info.cv7}), on "
                      f"{'long' if long else 'short'} address {address}", GOOD)
+            self.log(raw, INFO)
 
         self._link.run_job(lambda programmer, progress: programmer.identify(mode, progress), done)
 
@@ -581,7 +588,10 @@ class ProgrammerPanel(QWidget):
             self._facts["long"].setText("—")
         if 29 in values and 1 in values:
             address, long = decoder.active_address(values[1], values.get(17), values.get(18), values[29])
-            self._facts["address"].setText(f"{address}  ({'long' if long else 'short'})")
+            if address is None:
+                self._facts["address"].setText("long — couldn't read CV17/18")
+            else:
+                self._facts["address"].setText(f"{address}  ({'long' if long else 'short'})")
         else:
             self._facts["address"].setText("—")
         if 29 in values:

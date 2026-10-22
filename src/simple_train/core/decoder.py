@@ -113,9 +113,12 @@ def long_address_cvs(address: int) -> tuple[int, int]:
     return 0xC0 | (address >> 8), address & 0xFF
 
 
-def active_address(cv1: int, cv17: Optional[int], cv18: Optional[int], cv29: int) -> tuple[int, bool]:
-    """The address the loco answers to, and whether it's a long one."""
-    if cv29 & LONG_ADDRESS and cv17 is not None and cv18 is not None:
+def active_address(cv1: int, cv17: Optional[int], cv18: Optional[int], cv29: int) -> tuple[Optional[int], bool]:
+    """The address the loco answers to, and whether it's a long one. The
+    address is None when CV29 says long but CV17/18 couldn't be read."""
+    if cv29 & LONG_ADDRESS:
+        if cv17 is None or cv18 is None:
+            return None, True
         return long_address_from(cv17, cv18), True
     return cv1, False
 
@@ -157,7 +160,7 @@ class DecoderInfo:
         return Config.from_cv29(self.cv29)
 
     @property
-    def address(self) -> tuple[int, bool]:
+    def address(self) -> tuple[Optional[int], bool]:
         return active_address(self.cv1, self.cv17, self.cv18, self.cv29)
 
     @property

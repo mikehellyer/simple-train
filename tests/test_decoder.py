@@ -35,3 +35,7 @@ def test_manufacturers():
     assert manufacturer_name(11).startswith("NCE")
     assert manufacturer_name(48) == "Hornby"
     assert "Unknown" in manufacturer_name(250)
+
+
+def test_long_address_that_did_not_read():
+    assert decoder.active_address(3, None, None, 0x26) == (None, True)
