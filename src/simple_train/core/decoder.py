@@ -135,6 +135,12 @@ def address_writes(address: int, long: bool, cv29: int) -> list[tuple[int, int]]
     return [(1, address), (29, cv29 & ~LONG_ADDRESS & 0xFF)]
 
 
+def address_text(address: int, long: bool) -> str:
+    """An address the way NCE shows it: long addresses always have four
+    digits, so long 144 is 0144 (and short 3 is just 3)."""
+    return f"{address:04d}" if long else str(address)
+
+
 def should_be_long(address: int) -> bool:
     """NCE (like most systems) treats 1–127 as short and 128+ as long."""
     return address > 127

@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -27,8 +26,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from simple_train.core import decoder, nce
+from simple_train.core import decoder
 from simple_train.core.roster import Loco, export_loco, import_loco
+from simple_train.gui.address_spin import AddressSpin
 from simple_train.gui.roster_store import RosterStore
 
 SAVE_DELAY_MS = 600  # edits are saved this long after the last keypress
@@ -113,13 +113,12 @@ class RosterPanel(QWidget):
         self._road_number.textEdited.connect(self._schedule_save)
         form.addRow("Running number", self._road_number)
         address_row = QHBoxLayout()
-        self._address = QSpinBox()
-        self._address.setRange(1, nce.MAX_LONG_ADDRESS)
-        self._address.setMinimumWidth(90)
+        self._address = AddressSpin()
         self._address.valueChanged.connect(self._on_address)
         address_row.addWidget(self._address)
         self._long = QCheckBox("Long address")
         self._long.toggled.connect(self._schedule_save)
+        self._long.toggled.connect(self._address.set_long)
         address_row.addWidget(self._long)
         address_hint = QLabel("(what the decoder answers to — Read decoder fills this in)")
         address_hint.setStyleSheet("color: palette(placeholder-text);")

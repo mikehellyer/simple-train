@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from simple_train.core import decoder, nce
 from simple_train.core.roster import Loco
 from simple_train.core.settings import SettingsStore
+from simple_train.gui.address_spin import AddressSpin
 from simple_train.gui.link import ERROR, GOOD, INFO, Link
 from simple_train.gui.roster_store import RosterStore
 
@@ -163,10 +164,11 @@ class ProgrammerPanel(QWidget):
 
         self._main_label = QLabel("Loco address")
         row.addWidget(self._main_label)
-        self._main_address = _spin(1, nce.MAX_LONG_ADDRESS, self._store.settings.main_address)
+        self._main_address = AddressSpin(self._store.settings.main_address)
         self._main_address.valueChanged.connect(self._on_main_address)
         row.addWidget(self._main_address)
         self._main_long = QCheckBox("Long")
+        self._main_long.toggled.connect(self._main_address.set_long)
         self._main_long.setToolTip("Addresses over 127 are always long; tick this for a long address of 127 or less")
         row.addWidget(self._main_long)
 
@@ -220,10 +222,11 @@ class ProgrammerPanel(QWidget):
         change = QGroupBox("Change the address")
         grid = QGridLayout(change)
         grid.addWidget(QLabel("New address"), 0, 0)
-        self._new_address = _spin(1, nce.MAX_LONG_ADDRESS, 3)
+        self._new_address = AddressSpin(3)
         self._new_address.valueChanged.connect(self._on_new_address)
         grid.addWidget(self._new_address, 0, 1)
         self._new_long = QCheckBox("Long address")
+        self._new_long.toggled.connect(self._new_address.set_long)
         self._new_long.setToolTip("1–127 can be short or long; 128 and up are always long")
         grid.addWidget(self._new_long, 0, 2)
         explain = QLabel("Short addresses are 1–127 (CV1). Long addresses go up to 10239 (CV17 and CV18), "
@@ -470,7 +473,7 @@ class ProgrammerPanel(QWidget):
         def done(_):
             self._learn(dict(writes))
             checked = " and checked" if verify and nce.can_read(mode) else ""
-            where = f" on loco {address}" if mode == nce.MAIN else ""
+            where = f" on loco {decoder.address_text(address, bool(long) or address > 127)}" if mode == nce.MAIN else ""
             self.log(f"Wrote{checked}{where}: " + ", ".join(f"CV{cv} = {value}" for cv, value in writes), GOOD)
             if then is not None:
                 then()
@@ -501,7 +504,7 @@ class ProgrammerPanel(QWidget):
             self._main_address.setValue(address)  # ready for programming it on the main too
             self._main_long.setChecked(long)
             self.log(f"Found a decoder made by {info.manufacturer} (version {info.cv7}), on "
-                     f"{'long' if long else 'short'} address {address}", GOOD)
+                     f"{'long' if long else 'short'} address {decoder.address_text(address, long)}", GOOD)
             self.log(raw, INFO)
 
         self._link.run_job(lambda programmer, progress: programmer.identify(mode, progress), done)
@@ -514,10 +517,10 @@ class ProgrammerPanel(QWidget):
         if mode == nce.MAIN:
             # Can't read CV29 on the main, so its other options come from the Options page.
             cv29 = self._config().cv29()
-            old = self._main_address.value()
+            old = self._main_address.text()
             answer = QMessageBox.question(
                 self, "Change address on the main",
-                f"Give loco {old} the new address {address}?\n\nCV29 will be written as {cv29} — check the "
+                f"Give loco {old} the new address {decoder.address_text(address, long)}?\n\nCV29 will be written as {cv29} — check the "
                 "Options (CV29) page shows this loco's settings first, as NCE can't read them on the main.")
             if answer != QMessageBox.Yes:
                 return
@@ -537,7 +540,8 @@ class ProgrammerPanel(QWidget):
         def done(writes):
             writes = writes or decoder.address_writes(address, long, self._config().cv29())
             self._learn(dict(writes))
-            self.log(f"The loco now answers to {'long' if long else 'short'} address {address}", GOOD)
+            self.log(f"The loco now answers to {'long' if long else 'short'} address "
+                     f"{decoder.address_text(address, long)}", GOOD)
             if mode == nce.MAIN:
                 self._main_address.setValue(address)
                 self._main_long.setChecked(long)
@@ -655,7 +659,7 @@ class ProgrammerPanel(QWidget):
             self.log(f"{loco.name} has no saved CVs to write", ERROR)
             return
         if self.mode == nce.MAIN:
-            target = f"loco {self._main_address.value()} on the main"
+            target = f"loco {self._main_address.text()} on the main"
         else:
             target = "the decoder on the programming track"
         answer = QMessageBox.question(
@@ -728,7 +732,7 @@ class ProgrammerPanel(QWidget):
         self._facts["short"].setText(str(values[1]) if 1 in values else "—")
         if 17 in values and 18 in values:
             unused = 29 in values and not values[29] & decoder.LONG_ADDRESS
-            self._facts["long"].setText(f"{decoder.long_address_from(values[17], values[18])}"
+            self._facts["long"].setText(f"{decoder.address_text(decoder.long_address_from(values[17], values[18]), True)}"
                                         f"{'  (not in use)' if unused else ''}")
         else:
             self._facts["long"].setText("—")
@@ -737,7 +741,7 @@ class ProgrammerPanel(QWidget):
             if address is None:
                 self._facts["address"].setText("long — couldn't read CV17/18")
             else:
-                self._facts["address"].setText(f"{address}  ({'long' if long else 'short'})")
+                self._facts["address"].setText(f"{decoder.address_text(address, long)}  ({'long' if long else 'short'})")
         else:
             self._facts["address"].setText("—")
         if 29 in values:

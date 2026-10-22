@@ -39,3 +39,9 @@ def test_manufacturers():
 
 def test_long_address_that_did_not_read():
     assert decoder.active_address(3, None, None, 0x26) == (None, True)
+
+
+def test_address_text_like_nce():
+    assert decoder.address_text(144, True) == "0144"
+    assert decoder.address_text(4472, True) == "4472"
+    assert decoder.address_text(3, False) == "3"

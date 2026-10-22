@@ -17,6 +17,7 @@ from typing import Optional
 
 from platformdirs import user_data_dir
 
+from simple_train.core.decoder import address_text
 from simple_train.core.manufacturers import manufacturer_name
 
 FORMAT = 1
@@ -57,8 +58,7 @@ class Loco:
 
     @property
     def address_text(self) -> str:
-        # NCE shows long addresses with a leading zero (0144), so does this.
-        return f"{self.address:04d}" if self.long_address else str(self.address)
+        return address_text(self.address, self.long_address)
 
     def take_cvs(self, values: dict[int, int]) -> None:
         """Store CVs read from (or written to) the decoder, and what they

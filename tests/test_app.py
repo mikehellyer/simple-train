@@ -95,3 +95,18 @@ def test_roster_save_link_and_restore(window, monkeypatch):
     _wait(app, lambda: not link.busy and panel.loco is not None)
     win._restore_loco(loco.id)
     _wait(app, lambda: not link.busy and station.cvs[3] == 12)
+
+
+def test_long_addresses_have_four_digits(window):
+    app, win = window
+    panel = win.programmer
+    panel._values.update({1: 3, 17: 192, 18: 144, 29: 38})
+    panel._refresh()
+    assert panel._facts["address"].text().startswith("0144")
+    panel._new_address.setValue(144)
+    assert panel._new_address.text() == "0144"
+    panel._new_address.setValue(5)
+    panel._new_long.setChecked(False)
+    assert panel._new_address.text() == "5"
+    panel._new_long.setChecked(True)
+    assert panel._new_address.text() == "0005"
