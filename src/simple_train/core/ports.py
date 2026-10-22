@@ -7,9 +7,9 @@ from dataclasses import dataclass
 
 DEMO_PORT = "demo"
 
-# The NCE USB interface is built on a Silicon Labs CP210x USB-to-serial chip.
-SILICON_LABS_VID = 0x10C4
-CP210X_PIDS = {0xEA60, 0xEA70, 0xEA71}
+# The NCE USB interface is built on a USB-to-serial chip: a Silicon Labs
+# CP210x, or a WCH CH340 in later ones. (vendor ID, product ID)
+NCE_USB_CHIPS = {(0x10C4, 0xEA60), (0x10C4, 0xEA70), (0x10C4, 0xEA71), (0x1A86, 0x7523)}
 
 
 @dataclass
@@ -33,7 +33,7 @@ def list_ports() -> list[Port]:
         from serial.tools import list_ports as serial_ports
 
         for info in serial_ports.comports():
-            likely = info.vid == SILICON_LABS_VID and info.pid in CP210X_PIDS
+            likely = (info.vid, info.pid) in NCE_USB_CHIPS
             if sys.platform == "darwin" and info.device.startswith("/dev/tty."):
                 continue  # the /dev/cu. twin is the one to open on a Mac
             description = info.description if info.description and info.description != "n/a" else ""
@@ -51,5 +51,5 @@ def permission_problem(device: str) -> str:
         return ""
     if os.access(device, os.R_OK | os.W_OK):
         return ""
-    return ("You don't have permission to use the USB interface yet. Run "
-            "“sudo usermod -aG dialout $USER” in a terminal, then log out and back in.")
+    return (f"You don't have permission to use {device} yet. Installing the Simple-Train .deb fixes "
+            "this; or run “sudo usermod -aG dialout $USER” in a terminal, then log out and back in.")
