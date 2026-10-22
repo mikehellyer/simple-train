@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:  # build the installers without publishing a release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm packaging/pyinstaller/simple-train.spec
+
+      - name: Self-test the built app
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Linux)   dist/Simple-Train/Simple-Train --self-test ;;
+            macOS)   dist/Simple-Train.app/Contents/MacOS/Simple-Train --self-test ;;
+            Windows) powershell -Command '$p = Start-Process dist/Simple-Train/Simple-Train.exe -ArgumentList "--self-test" -Wait -PassThru; exit $p.ExitCode' ;;
+          esac
+
+      - name: Package (.deb)
+        if: runner.os == 'Linux'
+        run: bash packaging/linux/build-deb.sh
+
+      - name: Package (.dmg)
+        if: runner.os == 'macOS'
+        run: bash packaging/macos/build-dmg.sh
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        run: choco install innosetup -y --no-progress
+
+      - name: Package (Windows installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "packaging\windows\installer.iss"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: simple-train-${{ runner.os }}
+          path: |
+            dist/*.deb
+            dist/*.dmg
+            dist/*.exe
+          if-no-files-found: error
+
+  # Raspberry Pi (64-bit Raspberry Pi OS): built on an ARM runner inside
+  # Debian Bookworm, so the bundled app needs no newer system libraries
+  # than Raspberry Pi OS has.
+  build-pi:
+    runs-on: ubuntu-24.04-arm
+    container: python:3.13-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system libraries Qt needs
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends binutils libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 \
+            libfontconfig1 libdbus-1-3 libglib2.0-0 libxcb-cursor0
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm packaging/pyinstaller/simple-train.spec
+
+      - name: Self-test the built app
+        run: dist/Simple-Train/Simple-Train --self-test
+
+      - name: Package (.deb)
+        run: bash packaging/linux/build-deb.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: simple-train-RaspberryPi
+          path: dist/*.deb
+          if-no-files-found: error
+
+  release:
+    needs: [build, build-pi]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true

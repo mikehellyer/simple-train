@@ -1,0 +1,4 @@
+# Simple-Train: let whoever is logged in at the desktop use the NCE USB
+# interface (a Silicon Labs CP210x USB-to-serial chip) without having to be
+# in the dialout group. Must sort before 73-seat-late.rules for uaccess.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", TAG+="uaccess"

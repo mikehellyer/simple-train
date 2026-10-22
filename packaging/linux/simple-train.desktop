@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Simple-Train
+Comment=Model railway control for DCC: program your decoders through the NCE USB interface
+Exec=/opt/simple-train/Simple-Train
+Icon=simple-train
+Terminal=false
+Categories=Utility;
