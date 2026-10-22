@@ -38,6 +38,8 @@ class SimulatedCommandStation:
         self.main_writes: list[tuple[int, int, int]] = []  # (address word, cv, value)
         # What each loco on the main has been told: address word -> {op: data}
         self.locos: dict[int, dict[int, int]] = {}
+        # Accessories (points) as last set: address -> op (3 closed, 4 thrown)
+        self.accessories: dict[int, int] = {}
         self.sent: list[bytes] = []
         self._reply = b""
 
@@ -75,6 +77,12 @@ class SimulatedCommandStation:
                 for old in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06):
                     state.pop(old, None)
             state[sub] = data
+            return ok
+        if op == 0xAD:  # accessory
+            address, sub = (args[0] << 8) | args[1], args[2]
+            if not 1 <= address <= 2044:
+                return b"1"
+            self.accessories[address] = sub
             return ok
         if op == nce.OPS_PROGRAM_LOCO:
             address, cv, value = (args[0] << 8) | args[1], (args[2] << 8) | args[3], args[4]

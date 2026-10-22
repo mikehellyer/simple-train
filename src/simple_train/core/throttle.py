@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 from simple_train.core import nce
 from simple_train.core.decoder import address_text
@@ -92,6 +92,12 @@ class LocoState:
 
 
 @dataclass
+class _Accessory:
+    command: bytes
+    what: str  # for error messages, e.g. "Point 12"
+
+
+@dataclass
 class _Pending:
     state: LocoState
     drive: bool = False  # speed, direction or emergency stop changed
@@ -108,7 +114,7 @@ class ThrottleSender:
     def __init__(self, connection: nce.NceConnection, on_error: Optional[Callable[[str], None]] = None):
         self._connection = connection
         self._on_error = on_error
-        self._pending: dict[tuple[int, bool], _Pending] = {}
+        self._pending: dict[tuple, Union[_Pending, _Accessory]] = {}
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._idle = threading.Event()
@@ -124,6 +130,14 @@ class ThrottleSender:
     def functions(self, state: LocoState, *functions: int) -> None:
         """Send the groups holding these functions."""
         self._queue(state, groups={group_of(n) for n in functions})
+
+    def accessory(self, address: int, command: bytes, what: str) -> None:
+        """Send an accessory command (a point, made by core.track_plan).
+        A newer command for the same address replaces one not yet sent."""
+        with self._lock:
+            self._pending[("accessory", address)] = _Accessory(command, what)
+            self._idle.clear()
+        self._wake.set()
 
     def _queue(self, state: LocoState, drive: bool = False, groups: Optional[set[int]] = None) -> None:
         with self._lock:
@@ -157,14 +171,21 @@ class ThrottleSender:
                         break
                     key = next(iter(self._pending))
                     pending = self._pending.pop(key)
+                if isinstance(pending, _Accessory):
+                    what = pending.what
+                else:
+                    what = f"Loco {address_text(pending.state.address, pending.state.long)}"
                 try:
-                    self._send(pending)
+                    if isinstance(pending, _Accessory):
+                        self._connection.loco_command(pending.command)
+                    else:
+                        self._send(pending)
                 except nce.NceError as error:
                     if self._on_error is not None:
-                        self._on_error(f"Loco {address_text(pending.state.address, pending.state.long)}: {error}")
+                        self._on_error(f"{what}: {error}")
                 except Exception as error:  # never let the thread die
                     if self._on_error is not None:
-                        self._on_error(f"Loco {address_text(pending.state.address, pending.state.long)}: {error!r}")
+                        self._on_error(f"{what}: {error!r}")
             if self._stopping:
                 return
 

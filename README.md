@@ -34,12 +34,22 @@ working through the **NCE USB interface**.
   are stopped before a programming-track job starts (on a Power Cab the track switches over), and
   when you disconnect or quit.
 
+- **Track plan** (the Track plan tab): draw the layout on a grid in **Edit** mode with straights,
+  curves, left- and right-hand points, crossings, buffer stops and labels. Click a square to lay a piece
+  and click it again to turn it 45°. Drag the straight to lay a line of track, and right-click to
+  remove. Red dots mark track ends that don't meet anything. Give each point its NCE accessory address
+  (1–2044), and tick "wired the other way round" if closed and thrown come out swapped. Undo and redo
+  work, and the plan can be exported and imported. In **Run** mode, click a point (on the plan, or in
+  the Points list) to switch it. Green means closed and amber means thrown. Points sharing an address,
+  such as a crossover, move together.
+
 ### NCE notes
 
 - Through the USB interface, only a **Power Cab** or a **Twin** has a programming track. With an
   SB3, SB5 or Power Pro, the USB interface can only program on the main, and the app switches to
   that by itself.
 - NCE can't read CVs on the main; there it can only write them.
+- The command station can't report how a point is set, so the plan shows the last setting it sent.
 - The USB interface can't switch track power on or off, so **Stop all** sends an emergency stop to
   each loco on the throttles. A loco only driven from the handset isn't stopped.
 - On a Power Cab, the one track becomes the programming track while a job runs. The main is

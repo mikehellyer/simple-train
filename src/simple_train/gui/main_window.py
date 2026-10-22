@@ -20,6 +20,7 @@ from simple_train.gui.programmer_panel import ProgrammerPanel
 from simple_train.gui.roster_panel import RosterPanel
 from simple_train.gui.roster_store import RosterStore
 from simple_train.gui.throttle_panel import ThrottlePanel
+from simple_train.gui.track_plan_panel import TrackPlanPanel
 from simple_train.gui.update_banner import UpdateBanner
 from simple_train.gui.workers import BackgroundRunner
 
@@ -30,7 +31,8 @@ ICON_PATH = Path(__file__).parent / "resources" / "icon.png"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, store: SettingsStore | None = None, roster: RosterStore | None = None):
+    def __init__(self, store: SettingsStore | None = None, roster: RosterStore | None = None,
+                 plan_path: Path | None = None):
         super().__init__()
         self.setWindowTitle("Simple-Train")
         self.setWindowIcon(QIcon(str(ICON_PATH)))
@@ -62,6 +64,8 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self.programmer, "Programmer")
         self.throttles = ThrottlePanel(self.link, self._store, self.roster)
         self._tabs.addTab(self.throttles, "Throttles")
+        self.track_plan = TrackPlanPanel(self.link, plan_path)
+        self._tabs.addTab(self.track_plan, "Track plan")
         self.locos = RosterPanel(self.roster)
         self._tabs.addTab(self.locos, "Locos")
         self.locos.drive_requested.connect(self._drive_loco)
@@ -120,7 +124,7 @@ class MainWindow(QMainWindow):
             self,
             "About Simple-Train",
             f"<b>Simple-Train</b> v{__version__}<br><br>"
-            "Model railway control for DCC, with a decoder programmer, throttles and a loco roster, "
+            "Model railway control for DCC, with a decoder programmer, throttles, a track plan and a loco roster, "
             "for NCE systems through the NCE USB interface.<br><br>"
             "Decoder manufacturer names from the NMRA list, as kept by "
             "<a href='https://www.jmri.org/'>JMRI</a>.<br><br>"
@@ -190,6 +194,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self.locos.shutdown()  # saves any edit still waiting
         self.throttles.shutdown()  # brings moving locos to a stop
+        self.track_plan.shutdown()  # saves an edit still waiting
         self.link.shutdown()  # leaves programming track mode, so the Power Cab's track is the main again
         self._store.save()
         self._runner.shutdown(BACKGROUND_JOIN_TIMEOUT_MS)

@@ -25,7 +25,7 @@ def window(monkeypatch, tmp_path):
     monkeypatch.setattr(main_window, "check_for_update", lambda *args: None)
     app = QApplication.instance() or QApplication([])
     win = main_window.MainWindow(SettingsStore(tmp_path / "settings.json"),
-                                 RosterStore(Roster(tmp_path / "roster.json")))
+                                 RosterStore(Roster(tmp_path / "roster.json")), tmp_path / "plan.json")
     yield app, win
     win.close()
 
@@ -163,3 +163,51 @@ def test_throttle_drives_a_roster_loco(window):
     link.throttle.wait_until_sent()
     link.disconnect()
     assert station.locos[word][0x03] == 0
+
+
+def test_track_plan_edit_and_run(window):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    from plan_sample import sample_plan
+    from simple_train.core import track_plan as tp
+
+    app, win = window
+    panel, canvas, link = win.track_plan, win.track_plan.canvas, win.link
+
+    def click(column, row, button=Qt.LeftButton):
+        QTest.mouseClick(canvas, button, Qt.NoModifier,
+                         QPoint(column * canvas.cell + canvas.cell // 2, row * canvas.cell + canvas.cell // 2))
+
+    panel.set_mode("edit")
+    panel.set_tool(tp.STRAIGHT)
+    click(3, 3)
+    assert canvas.plan.get(3, 3).rotation == 0
+    click(3, 3)  # again: turns it
+    assert canvas.plan.get(3, 3).rotation == 1
+    panel.set_tool(tp.POINT_LEFT)
+    click(4, 3)
+    canvas.select((4, 3))
+    panel._point_address.setValue(9)
+    assert canvas.plan.get(4, 3).address == 9
+    click(3, 3, Qt.RightButton)
+    assert canvas.plan.get(3, 3) is None
+    panel.undo()
+    assert canvas.plan.get(3, 3) is not None
+    panel.save()
+    assert tp.load(panel._path).get(4, 3).address == 9
+
+    # Run a real plan against the demo command station.
+    panel.plan = sample_plan()
+    canvas.set_plan(panel.plan)
+    panel.set_mode("run")
+    win.connection_bar._ports.setCurrentIndex(win.connection_bar._ports.findData("demo"))
+    win.connection_bar.connect_now()
+    _wait(app, lambda: link.connected and not link.busy)
+    station = link._connection._transport
+    click(8, 11)
+    link.throttle.wait_until_sent()
+    assert station.accessories[1] == tp.THROWN and canvas.plan.get(8, 11).thrown
+    click(8, 11)
+    link.throttle.wait_until_sent()
+    assert station.accessories[1] == tp.CLOSED

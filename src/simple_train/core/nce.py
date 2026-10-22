@@ -16,6 +16,7 @@ Programming track commands (see JMRI's jmrix/nce for the same set):
 And on the main track:
   0xAE adH adL cvH cvL data   program a loco's CV on the main ("POM", write only)
   0xA2 adH adL op data        drive a loco: speed and direction, or a group of functions
+  0xAD adH adL op 0           set an accessory: a point closed (3) or thrown (4)
   0xAA                        the interface's version: 3 bytes
 
 Through the USB interface only a Power Cab or a Twin offers the programming
@@ -329,7 +330,9 @@ class NceConnection:
         return value
 
     def loco_command(self, command: bytes) -> None:
-        """Send one of the 0xA2 commands made by core.throttle."""
+        """Send a command answered by a single "!": the 0xA2 loco commands
+        made by core.throttle, or the 0xAD accessory commands made by
+        core.track_plan."""
         (status,) = self._command(command)
         if status != OK:
             raise _status_error(status, reading=False)
