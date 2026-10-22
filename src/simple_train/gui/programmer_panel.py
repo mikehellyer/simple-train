@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QInputDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -32,11 +33,23 @@ from PySide6.QtWidgets import (
 )
 
 from simple_train.core import decoder, nce
+from simple_train.core.roster import Loco
 from simple_train.core.settings import SettingsStore
 from simple_train.gui.link import ERROR, GOOD, INFO, Link
+from simple_train.gui.roster_store import RosterStore
 
 LOG_COLOURS = {INFO: None, GOOD: "#2e9e4f", ERROR: "#c0392b"}
 PENDING = QColor(255, 200, 60, 90)
+DIFFERENT = QColor(90, 160, 255, 70)  # differs from the copy saved in the roster
+
+MODE_TIPS = {
+    nce.DIRECT: "Reads and writes each CV directly. The quickest, and what every modern decoder uses.",
+    nce.PAGED: "Reaches CVs through a page register. Slower, but some older decoders (and some sound "
+               "decoders on a Power Cab) only answer this way.",
+    nce.REGISTER: "The oldest method, from the first DCC decoders: only CVs 1–4, 7, 8 and 29.",
+    nce.MAIN: "Programs a loco out on the layout by its address, without moving it to the programming "
+              "track. NCE can write this way but not read.",
+}
 
 # The speed and motor page: (CV, label, what it does)
 SPEED_CVS = [
@@ -58,10 +71,12 @@ def _spin(low: int, high: int, value: int = 0) -> QSpinBox:
 
 
 class ProgrammerPanel(QWidget):
-    def __init__(self, link: Link, store: SettingsStore, parent=None):
+    def __init__(self, link: Link, store: SettingsStore, roster: RosterStore, parent=None):
         super().__init__(parent)
         self._link = link
         self._store = store
+        self._roster = roster
+        self._loco_id: Optional[str] = None  # the roster loco on the programming track, if known
         self._values: dict[int, int] = {}  # what we know of this decoder's CVs
         self._pending: dict[int, int] = {}  # CV table edits not yet written
         self._filling_table = False
@@ -70,6 +85,7 @@ class ProgrammerPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 6, 10, 10)
+        layout.addWidget(self._build_loco_row())
         layout.addWidget(self._build_mode_row())
 
         self._tabs = QTabWidget()
@@ -99,12 +115,37 @@ class ProgrammerPanel(QWidget):
         link.progress_changed.connect(self._progress.setText)
         link.message.connect(self.log)
         link.command_station_changed.connect(lambda _: self._apply_command_station())
+        roster.changed.connect(self._fill_loco_combo)
+
+        self._fill_loco_combo()
 
         self._apply_command_station()
         self._refresh()
         self._update_enabled()
 
     # --- building
+
+    def _build_loco_row(self) -> QWidget:
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 4)
+        row.addWidget(QLabel("Loco"))
+        self._loco_combo = QComboBox()
+        self._loco_combo.setMinimumWidth(260)
+        self._loco_combo.setToolTip("Which loco from your roster this is. Read decoder picks it by address.")
+        self._loco_combo.currentIndexChanged.connect(self._on_loco_chosen)
+        row.addWidget(self._loco_combo)
+        self._save_loco = QPushButton("Save to roster…")
+        self._save_loco.setToolTip("Keep a copy of every CV read or written so far with this loco in the roster")
+        self._save_loco.clicked.connect(self._save_to_roster)
+        row.addWidget(self._save_loco)
+        self._restore_loco = self._action("Write saved CVs to decoder…", lambda: self.restore(self.loco))
+        row.addWidget(self._restore_loco)
+        self._loco_info = QLabel()
+        self._loco_info.setStyleSheet("color: palette(placeholder-text);")
+        row.addWidget(self._loco_info)
+        row.addStretch(1)
+        return box
 
     def _build_mode_row(self) -> QWidget:
         box = QWidget()
@@ -115,6 +156,7 @@ class ProgrammerPanel(QWidget):
         for mode in nce.MODES:
             label = nce.MODE_NAMES[mode]
             self._mode.addItem(label if mode == nce.MAIN else f"On the programming track — {label.lower()}", mode)
+            self._mode.setItemData(self._mode.count() - 1, MODE_TIPS[mode], Qt.ToolTipRole)
         self._mode.setCurrentIndex(max(0, self._mode.findData(self._store.settings.programming_mode)))
         self._mode.currentIndexChanged.connect(self._on_mode_changed)
         row.addWidget(self._mode)
@@ -294,13 +336,13 @@ class ProgrammerPanel(QWidget):
         single.addStretch(1)
         layout.addLayout(single)
 
-        self._table = QTableWidget(0, 5)
-        self._table.setHorizontalHeaderLabels(["CV", "What it is", "Value", "Hex", "Bits"])
+        self._table = QTableWidget(0, 6)
+        self._table.setHorizontalHeaderLabels(["CV", "What it is", "Value", "Hex", "Bits", "Saved"])
         self._table.verticalHeader().hide()
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.Stretch)
-        for column in (0, 2, 3, 4):
+        for column in (0, 2, 3, 4, 5):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         self._table.itemChanged.connect(self._on_table_edit)
         self._table.currentCellChanged.connect(self._on_table_row)
@@ -386,6 +428,8 @@ class ProgrammerPanel(QWidget):
             if button in self._read_buttons:
                 button.setToolTip("" if readable else "NCE can only read CVs on the programming track")
         self._write_changes.setEnabled(ready and bool(self._pending))
+        loco = self.loco
+        self._restore_loco.setEnabled(ready and loco is not None and bool(loco.cvs))
         self._mode.setEnabled(not self._link.busy)
         if not self._link.connected and not self._link.busy:
             self._progress.setText("Connect to your NCE USB interface (above) to start programming.")
@@ -453,6 +497,7 @@ class ProgrammerPanel(QWidget):
                 return
             self._new_address.setValue(address)
             self._new_long.setChecked(long)
+            self._match_loco(address, long)
             self._main_address.setValue(address)  # ready for programming it on the main too
             self._main_long.setChecked(long)
             self.log(f"Found a decoder made by {info.manufacturer} (version {info.cv7}), on "
@@ -522,6 +567,107 @@ class ProgrammerPanel(QWidget):
         # A reset can't be checked by reading CV8 back: it reads as the manufacturer ID.
         self._link.run_job(lambda programmer, progress: programmer.write_cvs([(8, 8)], mode, address, long,
                                                                              False, progress), done)
+
+    # --- the roster
+
+    @property
+    def loco(self) -> Optional[Loco]:
+        return self._roster.roster.get(self._loco_id)
+
+    def link_loco(self, loco_id: Optional[str]) -> None:
+        """Say which roster loco is on the track (e.g. "Open in programmer")."""
+        self._loco_id = loco_id if self._roster.roster.get(loco_id) else None
+        loco = self.loco
+        if loco is not None:
+            self._main_address.setValue(loco.address)
+            self._main_long.setChecked(loco.long_address)
+        self._fill_loco_combo()
+        self._refresh()
+
+    def _match_loco(self, address: int, long: bool) -> None:
+        loco = self._roster.roster.find_by_address(address, long)
+        previous = self._loco_id
+        self._loco_id = loco.id if loco else None
+        self._fill_loco_combo()
+        if loco is not None and loco.id != previous:
+            self.log(f"This is {loco.name} from your roster", INFO)
+
+    def _fill_loco_combo(self) -> None:
+        if self._roster.roster.get(self._loco_id) is None:
+            self._loco_id = None
+        self._loco_combo.blockSignals(True)
+        self._loco_combo.clear()
+        self._loco_combo.addItem("Not in the roster", None)
+        for loco in self._roster.roster.sorted():
+            self._loco_combo.addItem(loco.label, loco.id)
+        self._loco_combo.setCurrentIndex(max(0, self._loco_combo.findData(self._loco_id)))
+        self._loco_combo.blockSignals(False)
+        self._show_loco_info()
+
+    def _on_loco_chosen(self) -> None:
+        self.link_loco(self._loco_combo.currentData())
+
+    def _show_loco_info(self) -> None:
+        loco = self.loco
+        if loco is None:
+            self._loco_info.setText("")
+            self._save_loco.setText("Save to roster…")
+        else:
+            saved = f"{len(loco.cvs)} CVs saved {loco.cvs_saved_at}" if loco.cvs else "no CVs saved yet"
+            self._loco_info.setText(saved)
+            self._save_loco.setText("Save CVs to roster")
+        self._update_enabled()
+
+    def _save_to_roster(self) -> None:
+        if not self._values:
+            self.log("Nothing to save yet — read the decoder (or some CVs) first", ERROR)
+            return
+        loco = self.loco
+        if loco is None:
+            address, long = decoder.active_address(self._values.get(1, 3), self._values.get(17),
+                                                   self._values.get(18), self._values.get(29, 0))
+            if address is None:
+                address, long = self._main_address.value(), self._main_long.isChecked()
+            suggestion = f"Loco {address:04d}" if long else f"Loco {address}"
+            name, ok = QInputDialog.getText(self, "Add to roster", "Name for this loco:", text=suggestion)
+            if not ok or not name.strip():
+                return
+            loco = Loco(name=name.strip(), address=address, long_address=long)
+            loco.take_cvs(self._values)
+            self._roster.add(loco)
+            self._loco_id = loco.id
+            self._fill_loco_combo()
+            self.log(f"Added {loco.name} to the roster with {len(self._values)} CVs", GOOD)
+        else:
+            loco.take_cvs(self._values)
+            self._roster.save()
+            self.log(f"Saved {len(self._values)} CVs to {loco.name} in the roster", GOOD)
+        if len(loco.cvs) < 20:
+            self.log("Tip: for a full backup, read CVs 1 to 106 on the All CVs page, then save again", INFO)
+        self._refresh()
+
+    def restore(self, loco: Optional[Loco]) -> None:
+        """Write a roster loco's saved CVs back to the decoder."""
+        if loco is None or not self._link.connected or self._link.busy:
+            return
+        writes = loco.restore_writes()
+        if not writes:
+            self.log(f"{loco.name} has no saved CVs to write", ERROR)
+            return
+        if self.mode == nce.MAIN:
+            target = f"loco {self._main_address.value()} on the main"
+        else:
+            target = "the decoder on the programming track"
+        answer = QMessageBox.question(
+            self, "Write saved CVs",
+            f"Write {len(writes)} saved CVs from {loco.name} to {target}?\n\n"
+            "This replaces what's on the decoder now. Do it after a reset or a decoder swap, "
+            "or to undo changes.")
+        if answer != QMessageBox.Yes:
+            return
+        self._loco_id = loco.id
+        self._fill_loco_combo()
+        self._write(writes)
 
     def _read_range(self) -> None:
         low, high = sorted((self._range_from.value(), self._range_to.value()))
@@ -629,7 +775,11 @@ class ProgrammerPanel(QWidget):
             widget.blockSignals(False)
 
     def _fill_table(self) -> None:
-        cvs = sorted(set(cv for cv in decoder.CV_NAMES if cv <= TABLE_LAST_CV) | set(self._values) | set(self._pending))
+        loco = self.loco
+        saved = loco.cvs if loco is not None else {}
+        cvs = sorted(set(cv for cv in decoder.CV_NAMES if cv <= TABLE_LAST_CV) | set(self._values)
+                     | set(self._pending) | set(saved))
+        self._table.setColumnHidden(5, loco is None)
         self._filling_table = True
         self._table.setRowCount(len(cvs))
         bold = QFont()
@@ -638,6 +788,8 @@ class ProgrammerPanel(QWidget):
             value = self._pending.get(cv, self._values.get(cv))
             cells = [str(cv), decoder.cv_name(cv), "" if value is None else str(value)]
             cells += list(decoder.format_value(value)) if value is not None else ["", ""]
+            cells.append(str(saved[cv]) if cv in saved else "")
+            differs = cv in saved and value is not None and saved[cv] != value
             for column, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.UserRole, cv)
@@ -645,12 +797,15 @@ class ProgrammerPanel(QWidget):
                     item.setFlags(item.flags() | Qt.ItemIsEditable)
                 else:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                if column in (0, 2, 3):
+                if column in (0, 2, 3, 5):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if column == 4 or column == 3:
                     item.setFont(QFont("monospace"))
                 if cv in self._pending:
                     item.setBackground(QBrush(PENDING))
+                elif differs:
+                    item.setBackground(QBrush(DIFFERENT))
+                    item.setToolTip(f"The roster has {saved[cv]} for this CV")
                     if column == 2:
                         item.setFont(bold)
                 self._table.setItem(row, column, item)

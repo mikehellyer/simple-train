@@ -19,6 +19,12 @@ working through the **NCE USB interface**.
 - **All CVs**: read or write any CV from 1 to 1024, read a whole range, and edit values in the
   table before writing them.
 - An option to **check each write** by reading it back.
+- **Loco roster** (the Locos tab): each loco with its name, running number, DCC address, decoder and
+  notes, plus a saved copy of its CVs. **Save to roster** in the programmer stores everything read so
+  far. **Read decoder** recognises a roster loco by its address, and the All CVs table then shows the
+  saved values beside the decoder's, highlighting any differences. **Write saved CVs to decoder**
+  puts a loco's CVs back after a reset or a decoder swap. Locos can be exported to a file and
+  imported again.
 
 ### NCE notes
 

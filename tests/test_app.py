@@ -17,12 +17,15 @@ def window(monkeypatch, tmp_path):
     from PySide6.QtWidgets import QApplication
 
     from simple_train.core.settings import SettingsStore
+    from simple_train.core.roster import Roster
     from simple_train.gui import link, main_window
+    from simple_train.gui.roster_store import RosterStore
 
     monkeypatch.setattr(link, "DEMO_DELAY_SECONDS", 0)
     monkeypatch.setattr(main_window, "check_for_update", lambda *args: None)
     app = QApplication.instance() or QApplication([])
-    win = main_window.MainWindow(SettingsStore(tmp_path / "settings.json"))
+    win = main_window.MainWindow(SettingsStore(tmp_path / "settings.json"),
+                                 RosterStore(Roster(tmp_path / "roster.json")))
     yield app, win
     win.close()
 
@@ -62,3 +65,33 @@ def test_no_programming_track_on_power_pro(window):
     bar._station.setCurrentIndex(bar._station.findData(nce.POWER_PRO))
     app.processEvents()
     assert panel.mode == nce.MAIN
+
+
+def test_roster_save_link_and_restore(window, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+    app, win = window
+    bar, panel, link = win.connection_bar, win.programmer, win.link
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *args, **kwargs: ("Class 08", True)))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *args, **kwargs: QMessageBox.Yes))
+    bar._ports.setCurrentIndex(bar._ports.findData("demo"))
+    bar.connect_now()
+    _wait(app, lambda: link.connected and not link.busy)
+    station = link._connection._transport
+    station.cvs.update({17: 192, 18: 144, 29: 38, 3: 12})
+
+    panel._read_decoder()
+    _wait(app, lambda: not link.busy and 29 in panel._values)
+    panel._read([3])
+    _wait(app, lambda: not link.busy and panel._values.get(3) == 12)
+    panel._save_to_roster()
+    loco = win.roster.roster.locos[0]
+    assert (loco.name, loco.address, loco.long_address, loco.cvs[3]) == ("Class 08", 144, True, 12)
+    assert win.locos._list.count() == 1
+
+    station.cvs[3] = 99  # someone changes it; reading again finds the roster loco by address
+    panel._loco_id = None
+    panel._read_decoder()
+    _wait(app, lambda: not link.busy and panel.loco is not None)
+    win._restore_loco(loco.id)
+    _wait(app, lambda: not link.busy and station.cvs[3] == 12)
