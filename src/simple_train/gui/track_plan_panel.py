@@ -290,6 +290,9 @@ class _PointRow:
 
 
 class TrackPlanPanel(QWidget):
+    point_set = Signal(int, bool)  # accessory address, thrown — however it was switched
+    points_changed = Signal()  # points added, removed, renamed or readdressed
+
     def __init__(self, link: Link, path: Optional[Path] = None, parent=None):
         super().__init__(parent)
         self.link = link
@@ -541,6 +544,7 @@ class TrackPlanPanel(QWidget):
             return
         tile.thrown = (not tile.thrown) if thrown is None else thrown
         self.link.throttle.accessory(tile.address, tile.command(tile.thrown), tile.name or f"Point {tile.address}")
+        self.point_set.emit(tile.address, tile.thrown)
         # Points sharing an address (a crossover) move together.
         for other in self.plan.points():
             if other is not tile and other.address == tile.address:
@@ -708,6 +712,30 @@ class TrackPlanPanel(QWidget):
             tp.save(self.plan, self._path)
         except OSError as error:
             self._status.setText(f"Couldn't save the track plan: {error}")
+        points = [(tile.address, tile.name) for tile in self.plan.points()]
+        if points != getattr(self, "_saved_points", None):
+            self._saved_points = points
+            self.points_changed.emit()
+
+    def points_by_address(self) -> dict[int, list[tp.Tile]]:
+        """The points that have an address, grouped by it (a crossover shares one)."""
+        grouped: dict[int, list[tp.Tile]] = {}
+        for tile in self.plan.points():
+            if tile.address:
+                grouped.setdefault(tile.address, []).append(tile)
+        return grouped
+
+    def set_point(self, address: int, thrown: Optional[bool] = None) -> Optional[str]:
+        """Switch the point(s) on an address (the other way if thrown is None),
+        as a phone asks. An error message, or None."""
+        tiles = self.points_by_address().get(address)
+        if not tiles:
+            return f"There's no point with address {address} on the track plan"
+        if not self.can_switch:
+            return ("The programming track is in use: points can't be switched just now"
+                    if self.link.connected else "Simple-Train isn't connected to the NCE USB interface")
+        self.switch_point(tiles[0], thrown)
+        return None
 
     def shutdown(self) -> None:
         if self._save_timer.isActive():

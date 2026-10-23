@@ -43,6 +43,14 @@ working through the **NCE USB interface**.
   the Points list) to switch it. Green means closed and amber means thrown. Points sharing an address,
   such as a crossover, move together.
 
+- **Phones** (on the Throttles tab): tick **Let phones drive** and Engine Driver (Android) or WiThrottle
+  (iPhone) on the same Wi-Fi can drive trains and switch points, using the WiThrottle protocol on port
+  12090. Simple-Train announces itself on the network, so Engine Driver lists it by itself; otherwise
+  type in the address shown. Phones get your roster with its function key names, and the points from
+  the track plan. A loco driven from a phone and from the app stays in step, and **Stop all** and the
+  programming-track safety stop include the phones' locos. A phone that goes quiet has its locos
+  stopped, as JMRI does.
+
 ### NCE notes
 
 - Through the USB interface, only a **Power Cab** or a **Twin** has a programming track. With an

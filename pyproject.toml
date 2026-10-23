@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simple-train"
-version = "0.4.0"
+version = "0.5.0"
 description = "Model railway control for DCC: starting with a decoder programmer for NCE"
 authors = [{ name = "Mike Hellyer" }]
 requires-python = ">=3.12"
@@ -13,6 +13,7 @@ dependencies = [
     "platformdirs",
     "certifi",
     "pyserial",
+    "zeroconf",  # so phone throttles can find Simple-Train on the network
 ]
 
 [project.scripts]

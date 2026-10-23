@@ -30,6 +30,10 @@ class Settings:
     # address, "-" for a throttle with no loco chosen yet.
     throttles: str = "-;-"
 
+    # Phone throttles (Engine Driver, WiThrottle) over the network.
+    phones: bool = False
+    phone_port: int = 12090
+
 
 _CHOICES = {
     "baud": nce.BAUD_RATES,

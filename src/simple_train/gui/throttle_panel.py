@@ -38,6 +38,7 @@ from simple_train.core.settings import SettingsStore
 from simple_train.core.throttle import FUNCTION_COUNT, MAX_SPEED, LocoState
 from simple_train.gui.address_spin import AddressSpin
 from simple_train.gui.link import Link
+from simple_train.gui.loco_control import LocoControl
 from simple_train.gui.roster_store import RosterStore
 
 MAX_THROTTLES = 6
@@ -264,7 +265,7 @@ class ThrottleCard(QFrame):
             self.fill_choices()
             return
         self.stop_if_moving()
-        self.state = LocoState(address, long)
+        self.state = self._panel.control.state(address, long)
         self.loco_id = loco_id
         self.fill_choices()
         self.refresh()
@@ -286,8 +287,8 @@ class ThrottleCard(QFrame):
     # --- driving
 
     def _send_drive(self) -> None:
-        if self.state is not None and self._panel.can_drive:
-            self._panel.link.throttle.drive(self.state)
+        if self.state is not None:
+            self._panel.control.drive(self.state, source=self)
 
     def _on_speed(self, value: int) -> None:
         if self.state is None:
@@ -352,8 +353,7 @@ class ThrottleCard(QFrame):
         if self.state is None:
             return
         self.state.functions[number] = on
-        if self._panel.can_drive:
-            self._panel.link.throttle.functions(self.state, number)
+        self._panel.control.functions(self.state, number, source=self)
         button = self._function_buttons[number]
         button.blockSignals(True)
         button.setChecked(on)
@@ -482,9 +482,11 @@ class ThrottleCard(QFrame):
 
 
 class ThrottlePanel(QWidget):
-    def __init__(self, link: Link, store: SettingsStore, roster: RosterStore, parent=None):
+    def __init__(self, link: Link, store: SettingsStore, roster: RosterStore, control: LocoControl,
+                 parent=None):
         super().__init__(parent)
         self.link = link
+        self.control = control
         self.roster = roster
         self._store = store
         self._cards: list[ThrottleCard] = []
@@ -507,6 +509,9 @@ class ThrottlePanel(QWidget):
         bar.addWidget(self._stop_all)
         layout.addLayout(bar)
 
+        self._extras = QHBoxLayout()  # e.g. the phones strip
+        layout.addLayout(self._extras)
+
         self._row = QHBoxLayout()
         self._row.setContentsMargins(0, 0, 0, 0)
         self._row.addStretch(1)
@@ -527,13 +532,24 @@ class ThrottlePanel(QWidget):
         link.about_to_disconnect.connect(self.stop_moving)
         link.throttle_message.connect(self.say)
         roster.changed.connect(self._on_roster_changed)
+        control.changed.connect(self._on_loco_changed)
 
         self._restore_layout()
         self._refresh_all()
 
+    def add_strip(self, widget: QWidget) -> None:
+        """Put a widget in a row under the throttles' toolbar."""
+        self._extras.addWidget(widget)
+
     @property
     def can_drive(self) -> bool:
-        return self.link.connected and self.link.throttle is not None and not self.link.programming_track_busy
+        return self.control.can_drive
+
+    def _on_loco_changed(self, key, source) -> None:
+        """Someone else (a phone, say) changed a loco one of these throttles has."""
+        for card in self._cards:
+            if card is not source and card.state is not None and card.state.key == key:
+                card.refresh()
 
     @property
     def cards(self) -> list[ThrottleCard]:
@@ -580,20 +596,20 @@ class ThrottlePanel(QWidget):
         self._save_layout()
 
     def stop_all(self) -> None:
+        """Emergency-stop every loco being driven: here, and from phones."""
+        if self.control.emergency_stop_all():
+            self.say("Emergency stop: every loco on these throttles and the phones")
         for card in self._cards:
-            card.emergency_stop()
-        if any(card.state is not None for card in self._cards):
-            self.say("Emergency stop: every loco on these throttles")
+            card.refresh()
 
     def stop_moving(self) -> None:
-        """Bring moving locos to a stop (on disconnect, or quitting)."""
+        """Bring moving locos to a stop (on disconnect, or quitting) — phones' too."""
+        self.control.stop_moving()
         for card in self._cards:
-            card.stop_if_moving()
-        if self.link.throttle is not None:
-            self.link.throttle.wait_until_sent(2.0)
+            card.refresh()
 
     def _before_programming_track(self) -> None:
-        moving = [card for card in self._cards if card.state is not None and card.state.speed > 0]
+        moving = self.control.moving()
         self.stop_moving()
         if moving:
             self.say("Stopped the locos: the programming track is in use")
@@ -616,7 +632,7 @@ class ThrottlePanel(QWidget):
             elif card.loco is not None and card.state is not None:
                 loco = card.loco
                 if card.state.key != (loco.address, loco.long_address):
-                    card.state = LocoState(loco.address, loco.long_address)
+                    card.state = self.control.state(loco.address, loco.long_address)
             card.fill_choices()
             card.refresh()
         self._save_layout()
@@ -630,12 +646,12 @@ class ThrottlePanel(QWidget):
             if entry.startswith("r:"):
                 loco = self.roster.roster.get(entry[2:])
                 if loco is not None:
-                    card.state = LocoState(loco.address, loco.long_address)
+                    card.state = self.control.state(loco.address, loco.long_address)
                     card.loco_id = loco.id
             elif entry.startswith("a:"):
                 try:
                     _, address, kind = entry.split(":")
-                    card.state = LocoState(int(address), kind == "L")
+                    card.state = self.control.state(int(address), kind == "L")
                 except ValueError:
                     pass
             card.fill_choices()

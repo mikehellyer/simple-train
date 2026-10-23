@@ -42,7 +42,8 @@ a = Analysis(
     datas=[
         (str(src / "simple_train" / "gui" / "resources" / "icon.png"), "simple_train/gui/resources"),
     ],
-    hiddenimports=["serial.tools.list_ports"],
+    hiddenimports=["serial.tools.list_ports", "zeroconf", "zeroconf._utils.ipaddress", "zeroconf._handlers.answers",
+                   "zeroconf._services.info", "ifaddr"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

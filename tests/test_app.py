@@ -211,3 +211,66 @@ def test_track_plan_edit_and_run(window):
     click(8, 11)
     link.throttle.wait_until_sent()
     assert station.accessories[1] == tp.CLOSED
+
+
+def test_phone_drives_a_loco_and_switches_a_point(window):
+    from PySide6.QtNetwork import QTcpSocket
+
+    from plan_sample import sample_plan
+    from simple_train.core.roster import Loco
+
+    app, win = window
+    link = win.link
+    win.roster.add(Loco(name="Class 08", address=144, long_address=True,
+                        function_names={0: "Lights", 2: "Horn"}, momentary=[2]))
+    win.track_plan.plan = sample_plan()
+    win.track_plan.canvas.set_plan(win.track_plan.plan)
+    win.connection_bar._ports.setCurrentIndex(win.connection_bar._ports.findData("demo"))
+    win.connection_bar.connect_now()
+    _wait(app, lambda: link.connected and not link.busy)
+    station = link._connection._transport
+
+    win.phones.announce = False
+    assert win.phones.start(0) is None
+    phone = QTcpSocket()
+    phone.connectToHost("127.0.0.1", win.phones.port)
+    received = []
+
+    def read():
+        if phone.bytesAvailable():
+            received.extend(bytes(phone.readAll()).decode().splitlines())
+
+    def send(line):
+        phone.write((line + "\n").encode())
+
+    _wait(app, lambda: (read(), any(line.startswith("RL1") for line in received))[1])
+    assert "RL1]\\[Class 08}|{144}|{L" in received
+    assert any(line.startswith("PTL]\\[NT1}|{Loop west}|{2") for line in received)
+
+    send("NTest phone")
+    send("M0+L144<;>EClass 08")
+    send("M0AL144<;>V60")
+    send("M0AL144<;>F10")
+    _wait(app, lambda: (read(), "M0AL144<;>F10" in received and win.phones.phones == ["Test phone"])[1])
+    link.throttle.wait_until_sent()
+    word = 0xC000 | 144
+    assert station.locos[word][0x04] == 60 and station.locos[word][0x07] == 0x10
+
+    # The app's own throttle and the phone share the loco.
+    win._drive_loco(win.roster.roster.locos[0].id)
+    card = win.throttles.card_for(144, True)
+    assert card._slider.value() == 60
+    card._slider.setValue(20)
+    _wait(app, lambda: (read(), "M0AL144<;>V20" in received)[1])
+
+    send("PTATNT1")
+    _wait(app, lambda: (read(), "PTA4NT1" in received)[1])
+    link.throttle.wait_until_sent()
+    assert station.accessories[1] == 4
+
+    # The phone going away stops its moving loco.
+    phone.disconnectFromHost()
+    _wait(app, lambda: win.phones.phones == [])
+    link.throttle.wait_until_sent()
+    assert station.locos[word][0x04] == 0
+    win.phones.stop()

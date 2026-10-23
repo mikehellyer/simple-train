@@ -25,6 +25,14 @@ def self_test() -> int:
     except Exception:
         checks["serial ports"] = False
     try:
+        from zeroconf import ServiceInfo, Zeroconf  # noqa: F401  (phones find us with it)
+
+        from simple_train.core import withrottle
+
+        checks["phone throttles"] = withrottle.parse_key("L144") == (144, True)
+    except Exception:
+        checks["phone throttles"] = False
+    try:
         import certifi  # noqa: F401
 
         checks["certificates"] = True

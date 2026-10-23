@@ -16,6 +16,9 @@ from simple_train.core.settings import SettingsStore
 from simple_train.core.updater import API_TIMEOUT_SECONDS, check_for_update
 from simple_train.gui.connection_bar import ConnectionBar
 from simple_train.gui.link import Link
+from simple_train.gui.loco_control import LocoControl
+from simple_train.gui.phone_bar import PhoneBar
+from simple_train.gui.phone_server import PhoneServer
 from simple_train.gui.programmer_panel import ProgrammerPanel
 from simple_train.gui.roster_panel import RosterPanel
 from simple_train.gui.roster_store import RosterStore
@@ -62,10 +65,14 @@ class MainWindow(QMainWindow):
         self._tabs.setDocumentMode(True)
         self.programmer = ProgrammerPanel(self.link, self._store, self.roster)
         self._tabs.addTab(self.programmer, "Programmer")
-        self.throttles = ThrottlePanel(self.link, self._store, self.roster)
+        self.control = LocoControl(self.link, self)
+        self.throttles = ThrottlePanel(self.link, self._store, self.roster, self.control)
         self._tabs.addTab(self.throttles, "Throttles")
         self.track_plan = TrackPlanPanel(self.link, plan_path)
         self._tabs.addTab(self.track_plan, "Track plan")
+        self.phones = PhoneServer(self.control, self.roster, self.track_plan, self)
+        self.phone_bar = PhoneBar(self.phones, self._store)
+        self.throttles.add_strip(self.phone_bar)
         self.locos = RosterPanel(self.roster)
         self._tabs.addTab(self.locos, "Locos")
         self.locos.drive_requested.connect(self._drive_loco)
@@ -124,7 +131,7 @@ class MainWindow(QMainWindow):
             self,
             "About Simple-Train",
             f"<b>Simple-Train</b> v{__version__}<br><br>"
-            "Model railway control for DCC, with a decoder programmer, throttles, a track plan and a loco roster, "
+            "Model railway control for DCC, with a decoder programmer, throttles (and phones), a track plan and a loco roster, "
             "for NCE systems through the NCE USB interface.<br><br>"
             "Decoder manufacturer names from the NMRA list, as kept by "
             "<a href='https://www.jmri.org/'>JMRI</a>.<br><br>"
@@ -193,6 +200,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self.locos.shutdown()  # saves any edit still waiting
+        self.phone_bar.shutdown()  # phones first, so none can start a loco again
         self.throttles.shutdown()  # brings moving locos to a stop
         self.track_plan.shutdown()  # saves an edit still waiting
         self.link.shutdown()  # leaves programming track mode, so the Power Cab's track is the main again
