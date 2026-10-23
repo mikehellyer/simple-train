@@ -1,2 +1,0 @@
-[console_scripts]
-simple-train = simple_train.app:main
