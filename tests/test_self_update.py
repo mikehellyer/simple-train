@@ -27,8 +27,10 @@ def test_finds_macos_asset():
 
 
 def test_finds_linux_asset():
+    # The .deb is picked by processor, so say which: the test machine may be an ARM Mac.
     with patch("sys.platform", "linux"):
-        assert find_asset_for_this_platform(ASSETS) == "https://dl/lin.deb"
+        assert find_asset_for_this_platform(ASSETS, arch="amd64") == "https://dl/lin.deb"
+        assert find_asset_for_this_platform(ASSETS, arch="arm64") is None
 
 
 def test_returns_none_when_no_matching_asset():
