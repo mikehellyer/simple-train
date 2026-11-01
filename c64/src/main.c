@@ -26,11 +26,12 @@
 #define BAR 30
 
 #define JOY (*(volatile unsigned char *)0xDC00)
-#define JOY_UP 0x01
-#define JOY_DOWN 0x02
-#define JOY_LEFT 0x04
-#define JOY_RIGHT 0x08
-#define JOY_FIRE 0x10
+#define STICK_UP 0x01
+#define STICK_DOWN 0x02
+#define STICK_LEFT 0x04
+#define STICK_RIGHT 0x08
+#define STICK_FIRE 0x10
+#define KEY_BACK 95            /* the ← key, top left */
 
 enum { CONNECT, LOCOS, DRIVE, POINTS };
 
@@ -499,20 +500,20 @@ static void drive_joystick(void)
 {
     unsigned char joy = ~JOY & 0x1F;
     unsigned char pressed = joy & ~joy_before;
-    if (joy & (JOY_UP | JOY_DOWN)) {
+    if (joy & (STICK_UP | STICK_DOWN)) {
         /* held: one step every other frame, faster after a moment */
-        if (!(joy_before & (JOY_UP | JOY_DOWN)) || ++joy_repeat >= 2) {
+        if (!(joy_before & (STICK_UP | STICK_DOWN)) || ++joy_repeat >= 2) {
             joy_repeat = 0;
-            change_speed((joy & JOY_UP) ? 1 : -1);
+            change_speed((joy & STICK_UP) ? 1 : -1);
         }
     }
-    if (pressed & JOY_LEFT) {
+    if (pressed & STICK_LEFT) {
         set_direction(0);
     }
-    if (pressed & JOY_RIGHT) {
+    if (pressed & STICK_RIGHT) {
         set_direction(1);
     }
-    if (pressed & JOY_FIRE) {
+    if (pressed & STICK_FIRE) {
         stop();
     }
     joy_before = joy;
@@ -609,9 +610,9 @@ static unsigned char joystick_as_key(void)
     }
     wait = joy == joy_before ? 6 : 15;
     joy_before = joy;
-    if (joy & JOY_UP) return CH_CURS_UP;
-    if (joy & JOY_DOWN) return CH_CURS_DOWN;
-    if (joy & JOY_FIRE) return CH_ENTER;
+    if (joy & STICK_UP) return CH_CURS_UP;
+    if (joy & STICK_DOWN) return CH_CURS_DOWN;
+    if (joy & STICK_FIRE) return CH_ENTER;
     return 0;
 }
 
@@ -712,7 +713,7 @@ int main(void)
             } else if (key == 'p') {
                 selected = first_row = 0;
                 screen = POINTS;
-            } else if (key == CH_LEFT_ARROW && wt_have_loco) {
+            } else if (key == KEY_BACK && wt_have_loco) {
                 screen = DRIVE;
             } else if (key == 'q') {
                 disconnect("disconnected");
@@ -722,7 +723,7 @@ int main(void)
                 draw_points();
             } else if (key == CH_ENTER && selected < wt_point_count) {
                 wt_toggle_point(selected);
-            } else if (key == CH_LEFT_ARROW || key == CH_DEL) {
+            } else if (key == KEY_BACK || key == CH_DEL) {
                 selected = first_row = 0;
                 screen = wt_have_loco ? DRIVE : LOCOS;
             }
