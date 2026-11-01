@@ -41,6 +41,14 @@ jobs:
         if: runner.os == 'Linux'
         run: bash packaging/linux/build-deb.sh
 
+      - name: Build the C64 throttle (.prg)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends cc65
+          make -C c64 test
+          make -C c64
+          cp c64/simple-train-c64.prg dist/
+
       - name: Package (.dmg)
         if: runner.os == 'macOS'
         run: bash packaging/macos/build-dmg.sh
@@ -61,6 +69,7 @@ jobs:
         with:
           name: simple-train-${{ runner.os }}
           path: |
+            dist/*.prg
             dist/*.deb
             dist/*.dmg
             dist/*.exe

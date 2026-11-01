@@ -26,3 +26,6 @@ jobs:
             libfontconfig1 libdbus-1-3 libglib2.0-0 libxcb-cursor0
       - run: pip install -e . pytest
       - run: pytest
+      - name: C64 throttle protocol tests
+        if: runner.os == 'Linux'
+        run: make -C c64 test
